@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OA Pain Mobility Landscape - Bull's Eye Chart</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #fff;
+    color: #333;
+  }
+
+  /* 로딩 화면 */
+  #loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 60vh;
+    font-size: 16px;
+    color: #666;
+  }
+  #loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e0e0e0;
+    border-top: 4px solid #1a237e;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 16px;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* 헤더 — 타이틀과 lastUpdated 사이 간격 축소 */
+  .header {
+    text-align: center;
+    padding: 14px 20px 4px; /* 상단/하단 패딩 줄여서 간격 축소 */
+  }
+  .header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #1a237e;
+    letter-spacing: -0.3px;
+  }
+  .header p {
+    font-size: 13px;
+    color: #666;
+    margin-top: 2px; /* 타이틀과 서브텍스트 간격 축소 */
+  }
+
+  /* ===== 메인 레이아웃: 좌측 필터 + 우측 차트 ===== */
+  .main-layout {
+    display: flex;
+    max-width: 1400px;
+    margin: 0 auto;
+    gap: 12px;
+    padding: 0 12px;
+  }
+
+  /* ===== 필터 영역 (좌측 사이드바) ===== */
+  .filter-container {
+    width: 220px;
+    flex-shrink: 0;
+    padding: 10px 12px;
+    position: sticky;
+    top: 0;
+    max-height: 100vh;
+    overflow-y: auto;
+    background: #fafbfc;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .filter-group-label {
+    font-size: 12px; /* 11→12 사이드바 라벨 가독성 향상 */
+    font-weight: 700;
+    color: #444; /* 좀 더 진하게 */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .filter-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .filter-check {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px; /* 12→12.5 사이드바 체크 가독성 향상 */
+    color: #333; /* 좀 더 진하게 */
+    cursor: pointer;
+    padding: 4px 9px; /* 패딩 약간 키움 */
+    border: 1px solid #ddd;
+    border-radius: 14px;
+    background: #fff;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .filter-check:hover {
+    border-color: #aaa;
+  }
+  .filter-check.checked {
+    background: #eef2ff;
+    border-color: #99b;
+  }
+  .filter-check .fc-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .filter-check input[type="checkbox"] {
+    display: none;
+  }
+  .filter-search {
+    padding: 6px 9px; /* 패딩 키워서 입력 영역 여유 */
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 12px; /* 11→12 검색 입력 가독성 향상 */
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .filter-search:focus {
+    border-color: #7986cb;
+  }
+  .filter-reset-btn {
+    padding: 6px 14px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    color: #555;
+    transition: all 0.15s;
+    align-self: flex-end;
+  }
+  .filter-reset-btn:hover {
+    background: #f0f0f0;
+    border-color: #999;
+  }
+  .filter-count {
+    font-size: 12px;
+    color: #777;
+    align-self: flex-end;
+    padding-bottom: 2px;
+    white-space: nowrap;
+  }
+  .filter-count strong {
+    color: #1a237e;
+  }
+
+  /* ===== 대시보드 요약 바 (차트 상단) ===== */
+  .stats-legend-wrapper { /* 요약+범례를 감싸는 전체 래퍼 */
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 6px 8px 2px;
+    margin-bottom: 10px; /* 차트와의 하단 여백 추가 */
+  }
+  .stats-bar { /* 요약 바 — 섹션 카드들의 가로 컨테이너 */
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .stats-section { /* 각 카테고리(DRUG TYPE, PHASE, MOA) 섹션 카드 */
+    background: #f7f8fb;
+    border: 1px solid #e4e6ed;
+    border-radius: 8px;
+    padding: 6px 10px 6px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    min-width: 0;
+  }
+  .stats-section-label { /* 섹션 카드 안의 카테고리 라벨 */
+    font-size: 9px;
+    font-weight: 800;
+    color: #1a237e;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+  .stat-chip { /* 개별 통계 칩 (Chemical 46 등) */
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    color: #555;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    white-space: nowrap;
+  }
+  .stat-chip .stat-count { /* 칩 안의 숫자 강조 */
+    font-weight: 700;
+    color: #1a237e;
+  }
+  .stat-chip .stat-dot { /* 칩 안의 색상 도트 (Drug Type용) */
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stat-divider { /* 기존 JS 호환용 — 숨김 처리 */
+    display: none;
+  }
+
+  /* ===== Activity Flag 범례 (요약 바 아래) ===== */
+  .legend-bar { /* 범례 — statsBar와 동일 레이아웃 */
+    display: flex;
+    gap: 8px; /* statsBar와 동일 갭 */
+    flex-wrap: wrap;
+    align-items: stretch;
+    margin-top: 6px; /* statsBar와 범례 사이 간격 */
+  }
+  .legend-item { /* 개별 범례 아이템 */
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: #666;
+  }
+  .legend-dot { /* 범례 색상 도트 */
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* 차트 컨테이너 */
+  .chart-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 10px 20px 30px;
+    position: relative;
+  }
+
+  /* SVG를 충분히 크게 표시 — viewBox 축소 방지 */
+  #chart {
+    min-width: 1000px; /* 최소 1000px로 렌더링 */
+    min-height: 1000px;
+  }
+
+  svg { overflow: visible; }
+
+  /* 툴팁 — 깔끔한 카드 스타일 */
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 12px;
+    line-height: 1.7;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.15s;
+    max-width: 380px;
+    min-width: 220px;
+  }
+  .tooltip .tt-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: #1a237e;
+    margin-bottom: 6px;
+    border-bottom: 1px solid #eef0f5;
+    padding-bottom: 6px;
+  }
+  .tooltip .tt-row { color: #555; margin-bottom: 2px; }
+  .tooltip .tt-label { font-weight: 600; color: #333; }
+  .tooltip .tt-phase-badge {
+    display: inline-block;
+    background: #e8edf5;
+    color: #3949ab;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tooltip .tt-flag-badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  /* Phase 미니 범례 (필터 영역 내, 가로 배치) */
+  .phase-legend {
+    background: #f9f9fb;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 10px;
+    color: #555;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+  }
+  .phase-legend .pl-title {
+    font-weight: 700;
+    font-size: 10px;
+    color: #333;
+    margin-right: 4px;
+  }
+  .phase-legend .pl-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .phase-legend .pl-circle {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid #90a4ae;
+    flex-shrink: 0;
+  }
+
+  /* 메인 콘텐츠 (데이터 로드 전에는 숨김) */
+  #mainContent {
+    display: none;
+  }
+
+  /* ===== 인쇄 전용 스타일 — 차트만 출력 (이슈12) ===== */
+  @media print {
+    .filter-container { display: none !important; } /* 사이드바 숨김 */
+    .header { display: none !important; } /* 헤더 숨김 */
+    .stats-legend-wrapper { display: none !important; } /* 요약 바 숨김 */
+    #timelinePanel { display: none !important; } /* 타임라인 패널 숨김 */
+    .detail-panel { display: none !important; } /* 상세 패널 숨김 */
+    #loading { display: none !important; } /* 로딩 화면 숨김 */
+    .main-layout { display: block !important; } /* flex 레이아웃 해제 */
+    .chart-area { width: 100% !important; } /* 차트 전체 너비 */
+    .chart-container { padding: 0 !important; } /* 패딩 제거 */
+    #chart { min-width: auto !important; min-height: auto !important; width: 100% !important; } /* SVG 크기 자동 조정 */
+    body { background: white !important; } /* 흰색 배경 */
+  }
+
+  /* ===== 상세 패널 (도트 클릭 시 표시) ===== */
+  .detail-panel { /* 도트 클릭 시 나타나는 고정 상세 정보 패널 */
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    width: 340px;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.06);
+    padding: 20px;
+    z-index: 200;
+    display: none; /* 기본 숨김 */
+    font-size: 13px;
+    line-height: 1.7;
+    color: #333;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .detail-panel.visible { /* 패널 표시 상태 */
+    display: block;
+    animation: panelSlideIn 0.25s ease-out;
+  }
+  @keyframes panelSlideIn { /* 패널 등장 애니메이션 */
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .detail-panel .dp-header { /* 패널 헤더 (제목 + 닫기 버튼) */
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+    border-bottom: 2px solid #e8edf5;
+    padding-bottom: 10px;
+  }
+  .detail-panel .dp-title { /* 제품명 큰 제목 */
+    font-size: 17px;
+    font-weight: 700;
+    color: #1a237e;
+    flex: 1;
+    word-break: break-word;
+  }
+  .detail-panel .dp-close { /* 닫기(X) 버튼 */
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: #f0f0f0;
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-left: 8px;
+    transition: background 0.15s;
+  }
+  .detail-panel .dp-close:hover { /* 닫기 버튼 호버 */
+    background: #e0e0e0;
+    color: #333;
+  }
+  .detail-panel .dp-row { /* 각 정보 행 */
+    margin-bottom: 6px;
+  }
+  .detail-panel .dp-label { /* 라벨 (굵은 글씨) */
+    font-weight: 600;
+    color: #444;
+    display: inline-block;
+    min-width: 90px;
+  }
+  .detail-panel .dp-badge { /* 배지 스타일 (Phase, Activity 등) */
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .detail-panel .dp-moa-desc { /* MoA Description 영역 */
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #f7f8fb;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #555;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<!-- 로딩 화면 -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div>데이터 로딩 중...</div>
+</div>
+
+<!-- 메인 콘텐츠 (데이터 로드 후 표시) -->
+<div id="mainContent">
+
+<div class="header">
+  <h1>OA &amp; Pain / Mobility Landscape</h1>
+  <p>Bull's Eye Pipeline Chart &mdash; by Phase &amp; Drug Type</p>
+  <div id="lastUpdated" style="font-size:11px; color:#999; margin-top:2px;"></div>
+</div>
+
+<!-- 메인 레이아웃: 좌측 필터 + 우측 차트 -->
+<div class="main-layout">
+
+<!-- 좌측 필터 사이드바 -->
+<div class="filter-container" id="filterContainer">
+  <!-- Activity Flag -->
+  <div class="filter-group">
+    <div class="filter-group-label">ACTIVITY FLAG</div>
+    <div class="filter-checks" id="filterActivity"></div>
+  </div>
+  <!-- Phase -->
+  <div class="filter-group">
+    <div class="filter-group-label">PHASE</div>
+    <div class="filter-checks" id="filterPhase"></div>
+  </div>
+  <!-- Drug Type -->
+  <div class="filter-group">
+    <div class="filter-group-label">DRUG TYPE</div>
+    <div class="filter-checks" id="filterDrugType"></div>
+  </div>
+  <!-- Product 검색 -->
+  <div class="filter-group">
+    <div class="filter-group-label">PRODUCT</div>
+    <input type="text" class="filter-search" id="filterProduct" placeholder="Product 검색...">
+  </div>
+  <!-- Sponsor 검색 -->
+  <div class="filter-group">
+    <div class="filter-group-label">SPONSOR</div>
+    <input type="text" class="filter-search" id="filterSponsor" placeholder="Sponsor 검색...">
+  </div>
+  <!-- Indication 검색 -->
+  <div class="filter-group">
+    <div class="filter-group-label">INDICATION</div>
+    <input type="text" class="filter-search" id="filterIndication" placeholder="Indication 검색...">
+  </div>
+  <!-- MoA Target -->
+  <div class="filter-group">
+    <div class="filter-group-label">MOA TARGET</div>
+    <div class="filter-checks" id="filterMoA"></div>
+  </div>
+  <!-- DMOAD 토글 -->
+  <div class="filter-group">
+    <label style="font-size:11px; cursor:pointer;">
+      <input type="checkbox" id="filterDmoad"> DMOAD만 보기
+    </label>
+  </div>
+  <!-- 구분선 -->
+  <hr style="border:none; border-top:1px solid #e0e0e0; margin:4px 0;">
+  <!-- 버튼 + 카운트 -->
+  <div class="filter-group" style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+    <button class="filter-reset-btn" id="updateBtn" onclick="refreshChart()" style="width:100%; text-align:center; background:#e8eaf6; border-color:#1a237e; color:#1a237e;">↻ Update</button>
+    <button class="filter-reset-btn" id="filterReset" style="width:100%; text-align:center; background:#fce4ec; border-color:#e91e63; color:#e91e63;">⟲ Reset</button> <!-- 필터 초기화 버튼 -->
+    <button class="filter-reset-btn" id="downloadPng" style="width:100%; text-align:center; background:#e8f5e9; border-color:#43A047; color:#43A047;">PNG</button>
+    <button class="filter-reset-btn" id="downloadPdf" style="width:100%; text-align:center; background:#fff3e0; border-color:#FF9800; color:#FF9800;">PDF</button>
+  </div>
+  <div id="updateStatus" style="font-size:10px; color:#888; text-align:center;"></div>
+  <div class="filter-count" id="filterCount" style="font-size:11px; text-align:center;"></div>
+  <!-- Phase 범례 (안쪽→바깥쪽 Phase 링 색상 설명) -->
+  <div class="phase-legend" id="phaseLegend"></div>
+</div>
+
+<!-- 우측 차트 영역 -->
+<div class="chart-area" style="flex:1; min-width:0;">
+
+<!-- 요약 바 + 범례: 차트 위에 배치 (섹션 카드 그룹) -->
+<div class="stats-legend-wrapper"> <!-- 요약+범례 전체 래퍼 -->
+  <div class="stats-bar" id="statsBar"></div> <!-- 대시보드 요약 바 (JS가 내용 채움) -->
+  <div class="legend-bar" id="legendBar"></div> <!-- Activity Flag 범례 (JS가 내용 채움) -->
+</div>
+
+<!-- 차트 (Bull's Eye SVG + 툴팁) -->
+<div class="chart-container">
+  <svg id="chart"></svg>
+  <div class="tooltip" id="tooltip"></div>
+</div>
+
+<!-- 타임라인 패널 (차트 아래, 토글로 표시/숨김) -->
+<div id="timelinePanel" style="display:none; margin:8px 0; padding:16px; background:#fafbfc; border:1px solid #e0e0e0; border-radius:8px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+    <h3 style="font-size:14px; color:#1a237e; margin:0;">📅 Primary Completion Timeline</h3>
+    <button onclick="document.getElementById('timelinePanel').style.display='none'" style="border:none; background:none; cursor:pointer; font-size:16px; color:#999;">✕</button>
+  </div>
+  <div id="timelineSvg"></div>
+</div>
+
+</div><!-- /chart-area -->
+</div><!-- /main-layout -->
+
+<!-- 상세 패널 (도트 클릭 시 표시되는 고정 패널) -->
+<div class="detail-panel" id="detailPanel"></div>
+
+</div><!-- /mainContent -->
+
+<script>
+// ========== Google Sheets JSONP로 데이터 로드 (API key 불필요, CORS 우회) ==========
+var PIPELINE_DATA = []; // 시트 데이터가 여기에 들어옴
+var SHEET_ID = '1SQdDXgznxvfXoPmX3I0aiM15BJaNmKEazf7s365feMo'; // Google Sheets ID
+var TAB_NAME = 'Merge-Data.ver2'; // 탭 이름
+
+// JSONP 방식 데이터 로드 (script 태그로 CORS 우회)
+function loadData() {
+  return new Promise(function(resolve, reject) {
+    var callbackName = '__sheetCb_' + Date.now(); // 고유 콜백 이름
+    var url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID +
+      '/gviz/tq?tqx=out:json;responseHandler:' + callbackName +
+      '&sheet=' + encodeURIComponent(TAB_NAME);
+
+    var timeout = setTimeout(function() { // 15초 타임아웃
+      delete window[callbackName];
+      reject(new Error('시트 응답 시간 초과'));
+    }, 15000);
+
+    window[callbackName] = function(response) { // 구글이 호출하는 콜백
+      clearTimeout(timeout);
+      delete window[callbackName];
+      script.remove();
+      try {
+        if (response.status !== 'ok') throw new Error('시트 응답 오류');
+        var table = response.table;
+        var headers = table.cols.map(function(c) { return (c.label || '').trim().toLowerCase(); });
+
+        // 헤더→인덱스 매핑
+        var colMap = {};
+        headers.forEach(function(hdr, h) {
+          if (hdr.indexOf('product') >= 0 && hdr.indexOf('name') >= 0) colMap.product = h;
+          else if (hdr === 'sponsor') colMap.sponsor = h;
+          else if (hdr === 'inn') colMap.inn = h;
+          else if (hdr === 'class') colMap.drugClass = h;
+          else if (hdr === 'phase') colMap.phase = h;
+          else if (hdr.indexOf('nct') >= 0) colMap.nct = h;
+          else if (hdr.indexOf('activity') >= 0 && hdr.indexOf('flag') >= 0) colMap.activityFlag = h;
+          else if (hdr.indexOf('indication') >= 0) colMap.indication = h;
+          else if (hdr.indexOf('drug type') >= 0) colMap.drugType = h;
+          else if (hdr.indexOf('enrollment') >= 0) colMap.enrollment = h;
+          else if (hdr.indexOf('dmoad') >= 0) colMap.dmoad = h;
+          else if (hdr.indexOf('moa') >= 0) colMap.moa = h;
+        });
+
+        function val(cells, idx) { // 셀 값 추출
+          if (idx === undefined || !cells[idx]) return '';
+          return cells[idx].v != null ? String(cells[idx].v) : '';
+        }
+
+        PIPELINE_DATA = table.rows.map(function(row) {
+          var cells = row.c || [];
+          return {
+            product: val(cells, colMap.product),
+            sponsor: val(cells, colMap.sponsor),
+            inn: val(cells, colMap.inn),
+            drugClass: val(cells, colMap.drugClass),
+            phase: val(cells, colMap.phase),
+            nct: val(cells, colMap.nct),
+            activityFlag: val(cells, colMap.activityFlag),
+            indication: val(cells, colMap.indication),
+            drugType: val(cells, colMap.drugType),
+            enrollment: colMap.enrollment !== undefined && cells[colMap.enrollment] ? (Number(cells[colMap.enrollment].v) || 0) : 0,
+            dmoad: val(cells, colMap.dmoad),
+            moa: val(cells, colMap.moa)
+          };
+        }).filter(function(d) { return d.product; });
+
+        resolve(PIPELINE_DATA.length);
+      } catch (e) { reject(e); }
+    };
+
+    var script = document.createElement('script');
+    script.src = url;
+    script.onerror = function() { clearTimeout(timeout); delete window[callbackName]; reject(new Error('시트 연결 실패')); };
+    document.head.appendChild(script);
+  });
+}
+
+// 업데이트 버튼 — 시트 최신 데이터로 차트 다시 그리기
+function refreshChart() {
+  var btn = document.getElementById('updateBtn');
+  var status = document.getElementById('updateStatus');
+  btn.disabled = true;
+  status.textContent = '불러오는 중...';
+  status.style.color = '#1a237e';
+
+  loadData().then(function(count) {
+    document.getElementById('chart').innerHTML = '';
+    document.getElementById('legendBar').innerHTML = '';
+    document.getElementById('statsBar').innerHTML = '';
+    document.getElementById('filterActivity').innerHTML = '';
+    document.getElementById('filterPhase').innerHTML = '';
+    document.getElementById('filterDrugType').innerHTML = '';
+    document.getElementById('filterMoA').innerHTML = '';
+    document.getElementById('filterProduct').value = '';
+    document.getElementById('filterSponsor').value = '';
+    document.getElementById('filterIndication').value = '';
+    document.getElementById('filterDmoad').checked = false;
+    document.getElementById('tooltip').style.opacity = 0;
+    initChart();
+    var now = new Date();
+    var timeStr = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
+    status.textContent = '✓ ' + count + '건 반영 (' + timeStr + ')';
+    status.style.color = '#2e7d32';
+  }).catch(function(err) {
+    status.textContent = '✗ 실패: ' + (err.message || err);
+    status.style.color = '#c62828';
+  }).finally(function() { btn.disabled = false; });
+}
+
+// 초기 로드
+loadData().then(function(count) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('mainContent').style.display = 'block';
+  var now = new Date().toLocaleString('ko-KR');
+  document.getElementById('lastUpdated').textContent = '📅 Data loaded: ' + now; // 실제 시트 수정일이 아닌 데이터 로드 시간 표시
+  initChart();
+}).catch(function(err) {
+  var msg = (err && err.message) ? err.message : String(err || '알 수 없는 오류');
+  document.getElementById('loading').innerHTML =
+    '<div style="color:#c62828; font-size:14px; padding:20px; text-align:center;">' +
+    '<div style="font-size:20px; margin-bottom:12px;">!</div>' +
+    '<div>데이터 로드 실패</div>' +
+    '<div style="color:#888; font-size:12px; margin-top:8px;">' + msg + '</div>' +
+    '</div>';
+});
+
+// ========== 차트 초기화 함수 ==========
+function initChart() {
+
+// ========== 설정 ==========
+var phases = ["Approved", "Filed", "Phase 3", "Phase 2", "Phase 1", "Preclinical"]; // 안쪽 → 바깥 순서
+var phaseIndex = {}; // Phase별 인덱스 매핑
+phases.forEach(function(p, i) { phaseIndex[p] = i; });
+
+// Activity Flag 색상 매핑 — 도트 색상 결정 기준
+var activityColorMap = {
+  "A": "#4A90D9", // Active: 파랑
+  "C": "#43A047", // Completed: 초록
+  "M": "#E53935", // Marketed: 빨강
+  "T": "#9E9E9E", // Terminated: 회색
+  "":  "#BDBDBD"  // 빈 값: 연한 회색
+};
+
+// Activity Flag 라벨 매핑
+var activityLabelMap = {
+  "A": "Active",
+  "C": "Completed",
+  "M": "Marketed",
+  "T": "Terminated",
+  "":  "Unknown"
+};
+
+// Drug Type 대분류 6개 (섹터 구분용)
+var drugTypeCategories = ["Chemical", "Biological", "Cellular", "Gene/Vector", "Other", "Unclassified"];
+
+// Citeline 세부 분류 → 대분류 6개로 매핑
+function simplifyDrugType(dt) {
+  if (!dt) return "Unclassified"; // 빈 값 처리
+  var d = dt.toLowerCase();
+  // 1) Chemical — 합성/저분자 화합물 계열 (가장 먼저 체크)
+  if (d.indexOf("small molecule") >= 0 || d.indexOf("steroid") >= 0 || d.indexOf("reformulation") >= 0 || d.indexOf("synthetic") >= 0 || d.indexOf("organic") >= 0
+    || d.indexOf("polymer") >= 0 || d.indexOf("metal") >= 0 || d.indexOf("dendrimer") >= 0 // 고분자/금속/덴드리머
+    || d.indexOf("prodrug") >= 0 || d.indexOf("nanoparticle") >= 0 // 전구약물/나노입자
+    || d.indexOf("lipid") >= 0 || d.indexOf("inorganic") >= 0) return "Chemical"; // 지질/무기화합물
+  // 2) Cellular — 세포치료제 (Biological보다 먼저 체크: "cell"이 biological에도 매칭될 수 있음)
+  if (d.indexOf("cell") >= 0 || d.indexOf("tissue engineering") >= 0) return "Cellular";
+  // 3) Gene/Vector — 유전자/벡터 치료제
+  if (d.indexOf("gene") >= 0 || d.indexOf("vector") >= 0 || d.indexOf("plasmid") >= 0
+    || d.indexOf("mrna") >= 0 || d.indexOf("rna") >= 0 // mRNA/RNA 치료제
+    || d.indexOf("oligonucleotide") >= 0 || d.indexOf("aptamer") >= 0 // 올리고뉴클레오타이드/앱타머
+    || d.indexOf("antisense") >= 0 || d.indexOf("splice") >= 0) return "Gene/Vector"; // 안티센스/스플라이스 조절
+  // 4) Biological — 단백질/항체/백신 등 생물학적 제제
+  if (d.indexOf("protein") >= 0 || d.indexOf("peptide") >= 0 || d.indexOf("antibody") >= 0 || d.indexOf("fusion") >= 0 || d.indexOf("enzyme") >= 0 || d.indexOf("recombinant") >= 0 || d.indexOf("vaccine") >= 0 || d.indexOf("nanobody") >= 0
+    || d.indexOf("toxin") >= 0 || d.indexOf("immunoconjugate") >= 0 // 독소/면역접합체
+    || d.indexOf("oncolytic") >= 0 || d.indexOf("virus-like") >= 0 // 종양용해/바이러스유사입자
+    || d.indexOf("scaffold") >= 0) return "Biological"; // 스캐폴드 단백질
+  // 5) Other — 명시적 기타 분류 (의료기기/마이크로바이옴/방사선 등)
+  if (d.indexOf("device") >= 0 || d.indexOf("natural") >= 0 || d.indexOf("herbal") >= 0 || d.indexOf("microbiome") >= 0 || d.indexOf("radio") >= 0 || d.indexOf("dietary") >= 0
+    || d.indexOf("photodynamic") >= 0) return "Other"; // 광역학치료
+  // 6) Unclassified — 빈 값/미분류
+  if (d === "unclassified" || d === "") return "Unclassified";
+  // 7) 최종 fallback
+  return "Other"; // 나머지
+}
+
+// MoA(작용기전) 대분류 매핑 — drugClass 기반
+function simplifyMoA(drugClass) {
+  if (!drugClass) return "Unclassified"; // 빈 값 처리
+  var c = drugClass.toLowerCase();
+  if (c.indexOf("inhibitor") >= 0 || c.indexOf("antagonist") >= 0 || c.indexOf("blocker") >= 0) return "Inhibitor/Antagonist"; // 억제제/길항제
+  if (c.indexOf("agonist") >= 0 || c.indexOf("modulator") >= 0) return "Agonist/Modulator"; // 작용제/조절제
+  if (c.indexOf("antibody") >= 0 || c.indexOf("nanobody") >= 0) return "Antibody"; // 항체
+  if (c.indexOf("cell") >= 0 || c.indexOf("stem") >= 0) return "Cell Therapy"; // 세포치료
+  if (c.indexOf("gene") >= 0 || c.indexOf("vector") >= 0 || c.indexOf("plasmid") >= 0) return "Gene Therapy"; // 유전자치료
+  if (c.indexOf("peptide") >= 0 || c.indexOf("protein") >= 0 || c.indexOf("enzyme") >= 0) return "Peptide/Protein"; // 펩타이드/단백질
+  if (c.indexOf("scaffold") >= 0 || c.indexOf("tissue") >= 0 || c.indexOf("allograft") >= 0 || c.indexOf("graft") >= 0) return "Tissue/Scaffold"; // 조직/스캐폴드
+  if (c.indexOf("hyaluronic") >= 0 || c.indexOf("viscosuppl") >= 0) return "Viscosupplement"; // 점성보충제
+  if (c.indexOf("exosome") >= 0 || c.indexOf("platelet") >= 0) return "Exosome/PRP"; // 엑소좀/PRP
+  return "Other"; // 기타
+}
+
+// Activity Flag 값으로 도트 색상 반환
+function getColor(flag) {
+  var f = (flag || "").trim().toUpperCase(); // 정규화
+  if (f === "A" || f === "C" || f === "M" || f === "T") return activityColorMap[f];
+  return activityColorMap[""]; // 빈 값 = 연한 회색
+}
+
+// Activity Flag 정규화 (필터용)
+function normalizeFlag(flag) {
+  var f = (flag || "").trim().toUpperCase();
+  if (f === "A" || f === "C" || f === "M" || f === "T") return f;
+  return ""; // 빈 값
+}
+
+// 동심원 배경색 — Citeline 스타일 연한 파란 그라데이션
+var ringColors = [
+  "#d4e6f9",  // Approved (가장 안쪽, 진한 파랑)
+  "#dceaf9",  // Filed
+  "#e4eef9",  // Phase 3
+  "#ecf2fa",  // Phase 2
+  "#f4f7fc",  // Phase 1
+  "#f9fbfd"   // Preclinical (가장 바깥, 거의 흰색)
+];
+
+// ========== 필터 상태 ==========
+var filterState = {
+  activityFlags: new Set(["A", "C", "M", "T", ""]), // Activity Flag 필터 (빈 값 포함)
+  drugTypes: new Set(drugTypeCategories),            // Drug Type 섹터 필터
+  phases: new Set(phases),                           // Phase 필터
+  productQuery: "",                                   // Product 검색어
+  sponsorQuery: "",                                  // Sponsor 검색어
+  indicationQuery: "",                               // Indication 검색어
+  moaTargets: new Set(),                              // MoA Target 필터 (moaCategories 정의 후 업데이트)
+  dmoaOnly: false                                    // DMOAD 필터
+};
+
+// ========== 데이터 전처리 ==========
+// Phase 정규화 — 다양한 표기를 표준 6단계로 매핑
+function normalizePhase(raw) {
+  if (!raw) return "Preclinical"; // 빈값 기본값 — Phase 정보 없으면 가장 바깥 ring에 배치 (데이터 왜곡 최소화)
+  var p = raw.toLowerCase().replace(/[_\-]/g, ' ').trim(); // 소문자+정규화
+  // Approved 계열
+  if (p.indexOf('approved') >= 0 || p.indexOf('fda approved') >= 0
+    || p.indexOf('fda cleared') >= 0 || p.indexOf('ce marked') >= 0
+    || p.indexOf('kfda approved') >= 0) return "Approved";
+  // Filed/NDA 계열
+  if (p.indexOf('filed') >= 0 || p.indexOf('nda') >= 0
+    || p.indexOf('bla') >= 0 || p.indexOf('maa') >= 0) return "Filed";
+  // Phase 4 → Approved (이미 승인된 약의 시판 후 조사)
+  if (p.indexOf('phase 4') >= 0 || p.indexOf('phase4') >= 0) return "Approved";
+  // Phase 3 계열
+  if (p.indexOf('phase 3') >= 0 || p.indexOf('phase3') >= 0
+    || p.indexOf('phase iii') >= 0) return "Phase 3";
+  // Phase 2 계열
+  if (p.indexOf('phase 2') >= 0 || p.indexOf('phase2') >= 0
+    || p.indexOf('phase ii') >= 0) return "Phase 2";
+  // Phase 1 계열
+  if (p.indexOf('phase 1') >= 0 || p.indexOf('phase1') >= 0
+    || p.indexOf('phase i') >= 0) return "Phase 1";
+  // Preclinical 계열
+  if (p.indexOf('preclinical') >= 0 || p.indexOf('pre-clinical') >= 0
+    || p.indexOf('discovery') >= 0 || p.indexOf('hit') >= 0
+    || p.indexOf('lead') >= 0 || p.indexOf('basic research') >= 0
+    || p.indexOf('exploratory') >= 0 || p.indexOf('undisclosed') >= 0) return "Preclinical";
+  // PROGRESS 등 특수 케이스
+  if (p.indexOf('progress') >= 0) return "Phase 3";
+  return "Preclinical"; // 최종 fallback — 불명확한 Phase는 가장 바깥 ring 배치
+}
+
+var processedData = PIPELINE_DATA.map(function(d) {
+  var ph = normalizePhase(d.phase); // Phase 정규화 (키워드 매칭)
+  var dtCategory = simplifyDrugType(d.drugType); // Drug Type 대분류 변환
+  var flag = normalizeFlag(d.activityFlag); // Activity Flag 정규화
+  var moa = simplifyMoA(d.drugClass); // MoA 대분류 변환
+  var dmoad = d.dmoad || ""; // DMOAD 여부
+  return Object.assign({}, d, { phase: ph, dtCategory: dtCategory, flagNorm: flag, moaCategory: moa, moaRaw: d.moa || "", dmoad: dmoad, primaryCompletionDate: d.primaryCompletionDate || "", studyCompletionDate: d.studyCompletionDate || "" }); // moaCategory=대분류, moaRaw=원본 MoA Description, 타임라인용 날짜 필드 포함
+});
+
+// ========== MoA 카테고리 목록 (고유값 추출) ==========
+var moaCategorySet = new Set(); // MoA 고유값 집합
+processedData.forEach(function(d) { moaCategorySet.add(d.moaCategory); }); // 모든 MoA 카테고리 수집
+var moaCategories = Array.from(moaCategorySet).sort(); // 정렬된 배열로 변환
+filterState.moaTargets = new Set(moaCategories); // moaCategories가 정의된 후 업데이트
+
+// ========== Drug Type별 섹터 그룹핑 ==========
+var drugTypeGroups = []; // {category, items} 배열
+drugTypeCategories.forEach(function(cat) {
+  var items = processedData.filter(function(d) { return d.dtCategory === cat; }); // 해당 대분류 아이템
+  if (items.length > 0) {
+    drugTypeGroups.push({ category: cat, items: items }); // 아이템이 있는 카테고리만 포함
+  }
+});
+
+// ========== 필터 UI 구축 ==========
+function buildFilterUI() {
+  // Activity Flag 체크박스 (도트 색상 기준)
+  var actContainer = document.getElementById("filterActivity");
+  ["A", "C", "M", "T", ""].forEach(function(flag) {
+    var color = activityColorMap[flag]; // 해당 플래그 색상
+    var label = document.createElement("label");
+    label.className = "filter-check checked";
+    var displayName = flag ? flag + " (" + activityLabelMap[flag] + ")" : "Unknown"; // 표시 이름
+    label.innerHTML = '<input type="checkbox" checked data-flag="' + flag + '"><span class="fc-dot" style="background:' + color + '"></span>' + displayName;
+    label.addEventListener("click", function(e) {
+      e.preventDefault();
+      var cb = this.querySelector("input");
+      cb.checked = !cb.checked;
+      this.classList.toggle("checked", cb.checked);
+      if (cb.checked) {
+        filterState.activityFlags.add(flag); // 선택 추가
+      } else {
+        filterState.activityFlags.delete(flag); // 선택 제거
+      }
+      applyFilters(); // 필터 적용
+    });
+    actContainer.appendChild(label);
+  });
+
+  // Drug Type 체크박스 (섹터 on/off)
+  var dtContainer = document.getElementById("filterDrugType");
+  drugTypeCategories.forEach(function(type) {
+    var label = document.createElement("label");
+    label.className = "filter-check checked";
+    label.innerHTML = '<input type="checkbox" checked data-dtype="' + type + '">' + type;
+    label.addEventListener("click", function(e) {
+      e.preventDefault();
+      var cb = this.querySelector("input");
+      cb.checked = !cb.checked;
+      this.classList.toggle("checked", cb.checked);
+      if (cb.checked) {
+        filterState.drugTypes.add(type); // 섹터 표시
+      } else {
+        filterState.drugTypes.delete(type); // 섹터 숨김
+      }
+      applyFilters(); // 필터 적용
+    });
+    dtContainer.appendChild(label);
+  });
+
+  // Phase 체크박스
+  var phContainer = document.getElementById("filterPhase");
+  phases.forEach(function(ph) {
+    var label = document.createElement("label");
+    label.className = "filter-check checked";
+    label.innerHTML = '<input type="checkbox" checked data-phase="' + ph + '">' + ph;
+    label.addEventListener("click", function(e) {
+      e.preventDefault();
+      var cb = this.querySelector("input");
+      cb.checked = !cb.checked;
+      this.classList.toggle("checked", cb.checked);
+      if (cb.checked) {
+        filterState.phases.add(ph); // 선택 추가
+      } else {
+        filterState.phases.delete(ph); // 선택 제거
+      }
+      applyFilters(); // 필터 적용
+    });
+    phContainer.appendChild(label);
+  });
+
+  // Product 검색 — 이름으로 약물 찾기
+  document.getElementById("filterProduct").addEventListener("input", function() {
+    filterState.productQuery = this.value.trim().toLowerCase(); // 소문자로 변환 저장
+    applyFilters(); // 필터 적용
+  });
+
+  // Sponsor 검색 입력
+  document.getElementById("filterSponsor").addEventListener("input", function() {
+    filterState.sponsorQuery = this.value.trim().toLowerCase(); // 소문자로 변환 저장
+    applyFilters();
+  });
+
+  // Indication 검색 입력
+  document.getElementById("filterIndication").addEventListener("input", function() {
+    filterState.indicationQuery = this.value.trim().toLowerCase(); // 소문자로 변환 저장
+    applyFilters();
+  });
+
+  // MoA Target 체크박스 (MoA 카테고리 on/off)
+  var moaContainer = document.getElementById("filterMoA");
+  moaCategories.forEach(function(moa) { // 각 MoA 카테고리
+    var label = document.createElement("label");
+    label.className = "filter-check checked";
+    label.innerHTML = '<input type="checkbox" checked data-moa="' + moa + '">' + moa; // MoA 이름 표시
+    label.addEventListener("click", function(e) {
+      e.preventDefault();
+      var cb = this.querySelector("input");
+      cb.checked = !cb.checked;
+      this.classList.toggle("checked", cb.checked);
+      if (cb.checked) {
+        filterState.moaTargets.add(moa); // MoA 선택 추가
+      } else {
+        filterState.moaTargets.delete(moa); // MoA 선택 제거
+      }
+      applyFilters(); // 필터 적용
+    });
+    moaContainer.appendChild(label);
+  });
+
+  // DMOAD 체크박스 핸들러
+  document.getElementById("filterDmoad").addEventListener("change", function() {
+    filterState.dmoaOnly = this.checked; // DMOAD 필터 상태 변경
+    applyFilters(); // 필터 적용
+  });
+
+  // 리셋 버튼 (filterReset 요소가 존재할 때만 이벤트 등록)
+  var filterResetEl = document.getElementById("filterReset"); // 리셋 버튼 요소 조회
+  if (filterResetEl) filterResetEl.addEventListener("click", function() {
+    // Activity Flag 전체 선택
+    filterState.activityFlags = new Set(["A", "C", "M", "T", ""]);
+    document.querySelectorAll("#filterActivity .filter-check").forEach(function(el) {
+      el.classList.add("checked");
+      el.querySelector("input").checked = true;
+    });
+    // Drug Type 전체 선택
+    filterState.drugTypes = new Set(drugTypeCategories);
+    document.querySelectorAll("#filterDrugType .filter-check").forEach(function(el) {
+      el.classList.add("checked");
+      el.querySelector("input").checked = true;
+    });
+    // Phase 전체 선택
+    filterState.phases = new Set(phases);
+    document.querySelectorAll("#filterPhase .filter-check").forEach(function(el) {
+      el.classList.add("checked");
+      el.querySelector("input").checked = true;
+    });
+    // 검색 초기화
+    document.getElementById("filterProduct").value = ""; // Product 검색 초기화
+    document.getElementById("filterSponsor").value = "";
+    document.getElementById("filterIndication").value = "";
+    filterState.productQuery = ""; // Product 검색어 초기화
+    filterState.sponsorQuery = "";
+    filterState.indicationQuery = "";
+    // MoA 전체 선택
+    filterState.moaTargets = new Set(moaCategories);
+    document.querySelectorAll("#filterMoA .filter-check").forEach(function(el) {
+      el.classList.add("checked");
+      el.querySelector("input").checked = true;
+    });
+    // DMOAD 해제
+    filterState.dmoaOnly = false;
+    document.getElementById("filterDmoad").checked = false;
+    applyFilters();
+  });
+
+  // PNG/PDF 다운로드 이벤트 리스너는 initChart() 밖에서 한 번만 등록 (중복 등록 방지)
+}
+
+// ========== 필터 적용 함수 ==========
+function isItemVisible(item) {
+  // Activity Flag 필터
+  if (!filterState.activityFlags.has(item.flagNorm)) return false; // 플래그 미선택
+  // Drug Type 필터
+  if (!filterState.drugTypes.has(item.dtCategory)) return false; // 섹터 미선택
+  // Phase 필터
+  if (!filterState.phases.has(item.phase)) return false; // Phase 미선택
+  // Product 검색
+  if (filterState.productQuery && !(item.product || "").toLowerCase().includes(filterState.productQuery)) return false; // 제품명 필터
+  // Sponsor 검색
+  if (filterState.sponsorQuery && !(item.sponsor || "").toLowerCase().includes(filterState.sponsorQuery)) return false;
+  // Indication 검색
+  if (filterState.indicationQuery && !(item.indication || "").toLowerCase().includes(filterState.indicationQuery)) return false;
+  // MoA Target 필터
+  if (!filterState.moaTargets.has(item.moaCategory)) return false; // MoA 미선택
+  // DMOAD 필터 — DMOAD만 보기 활성화 시 Yes/Y만 표시
+  if (filterState.dmoaOnly) {
+    var dVal = (item.dmoad || "").toLowerCase().trim();
+    if (dVal !== "yes" && dVal !== "y") return false; // DMOAD 아닌 항목 숨김
+  }
+  return true; // 모든 필터 통과
+}
+
+function applyFilters() {
+  var visibleCount = 0; // 표시 중인 항목 수
+  var totalCount = processedData.length; // 전체 항목 수
+
+  // 모든 도트 그룹에 필터 적용 (도트 + 라벨)
+  d3.selectAll(".dot-group").each(function() {
+    var el = d3.select(this);
+    var idx = +el.attr("data-index"); // 데이터 인덱스
+    var item = processedData[idx];
+    var visible = isItemVisible(item); // 필터 통과 여부
+    if (visible) visibleCount++;
+
+    // 검색어 매칭 여부 확인 (이슈10: 검색 하이라이트)
+    var hasSearchQuery = filterState.productQuery || filterState.sponsorQuery || filterState.indicationQuery; // 검색어 존재 여부
+    var isSearchMatch = false; // 검색어 매칭 여부
+    if (hasSearchQuery && visible) { // 검색어가 있고 필터 통과한 경우만 체크
+      isSearchMatch = true; // 필터 통과 = 검색 매칭
+    }
+
+    // 도트 opacity 변경 (메인 도트 + DMOAD 링 모두)
+    el.selectAll("circle")
+      .transition().duration(300)
+      .attr("fill-opacity", function() {
+        var f = d3.select(this).attr("fill"); // fill 색상 확인
+        if (f === "none") return 0; // DMOAD 링은 fill 없음 → 0 유지
+        return visible ? 0.85 : 0.05;
+      })
+      .attr("stroke-opacity", visible ? 0.9 : 0.05);
+
+    // 검색 매칭 하이라이트 — 골드 두꺼운 테두리 (이슈10)
+    el.select("circle:first-child") // 메인 도트만 선택
+      .transition().duration(300)
+      .attr("stroke", isSearchMatch ? "#FFD700" : "#fff") // 매칭 시 골드, 아니면 흰색
+      .attr("stroke-width", isSearchMatch ? 3 : 1); // 매칭 시 두꺼운 테두리
+
+    // 라벨 opacity 변경 (밀집 섹터는 기본 숨김 유지)
+    var canShowLabel = el.attr("data-show-label") === "1"; // 밀집도 기반 라벨 표시 여부
+    el.select("text")
+      .transition().duration(300)
+      .attr("opacity", visible && canShowLabel ? 1 : (visible ? 0 : 0.05)); // 밀집 시 숨김, 필터 아웃 시 거의 투명
+  });
+
+  // 카운트 표시 업데이트
+  document.getElementById("filterCount").innerHTML =
+    '<strong>' + visibleCount + '</strong> / ' + totalCount + ' products';
+
+  // 필터 변경 시 URL 파라미터도 동기화 (writeFiltersToURL이 정의된 후에만 실행)
+  if (typeof writeFiltersToURL === 'function') writeFiltersToURL(); // URL 파라미터 업데이트
+}
+
+// ========== 레이아웃 계산 ==========
+var chartDiameter = 1600; // 차트 고정 크기 (충분히 크게)
+var size = chartDiameter;
+var cx = size / 2; // 중심 X
+var cy = size / 2; // 중심 Y
+var maxR = size / 2 - 150; // 바깥 원 반지름 (라벨 공간 넉넉히)
+var centerR = 70;           // 중앙 빈 원 반지름
+var minR = centerR;         // 가장 안쪽 원 = 중앙 원 경계
+var ringCount = phases.length; // 동심원 개수
+var ringWidth = (maxR - minR) / ringCount; // 각 링 너비
+
+// 각 phase의 반지름 범위 (안쪽 → 바깥)
+function ringInner(i) { return minR + i * ringWidth; }       // 링 안쪽 반지름
+function ringOuter(i) { return minR + (i + 1) * ringWidth; } // 링 바깥 반지름
+function ringMid(i)   { return (ringInner(i) + ringOuter(i)) / 2; } // 링 중간 반지름
+
+// ========== 섹터 각도 배분 (Drug Type별, 제품 수 비례) ==========
+var totalItems = processedData.length; // 전체 제품 수
+var minAngleDeg = 15; // 최소 섹터 각도(도) — 빈 섹터도 최소 공간 확보
+var totalMinAngle = drugTypeGroups.length * minAngleDeg; // 최소 각도 합계
+var remainAngle = 360 - totalMinAngle; // 비례 배분할 남은 각도
+
+var sectorAngles = drugTypeGroups.map(function(g) { // 각 섹터의 각도 계산
+  var extra = totalItems > 0 ? (g.items.length / totalItems) * remainAngle : 0; // 제품 수 비례
+  return minAngleDeg + extra;
+});
+
+// 시작 각도 계산
+var sectorStarts = []; // 각 섹터의 시작 각도
+var cumAngle = -90; // 12시 방향 시작
+sectorAngles.forEach(function(a) {
+  sectorStarts.push(cumAngle);
+  cumAngle += a;
+});
+
+// ========== SVG 렌더링 (viewBox 반응형) ==========
+var svg = d3.select("#chart")
+  .attr("viewBox", "0 0 " + size + " " + size) // viewBox로 반응형 처리
+  .attr("width", size)
+  .attr("height", size)
+  .style("max-width", "100%")
+  .style("height", "auto");
+
+var g = svg.append("g")
+  .attr("transform", "translate(" + cx + "," + cy + ")");
+
+var degToRad = Math.PI / 180; // 각도→라디안 변환 상수
+
+// --- 동심원 (Citeline 스타일 배경) ---
+for (var i = ringCount - 1; i >= 0; i--) { // 바깥에서 안쪽 순서로 그려야 안쪽이 위에 옴
+  g.append("circle")
+    .attr("r", ringOuter(i))
+    .attr("fill", ringColors[i])      // 연한 파랑 배경
+    .attr("stroke", "#7a9bc0")        // 구분선 색상 (진하게)
+    .attr("stroke-width", 1.2)        // 선 두께 키움
+    .attr("stroke-dasharray", "6,3"); // 점선 패턴
+}
+
+// 중앙 빈 원 (OA Pipeline 텍스트 영역)
+g.append("circle")
+  .attr("r", centerR)
+  .attr("fill", "#fff")
+  .attr("stroke", "#b0c4de")
+  .attr("stroke-width", 1);
+
+// 중앙 텍스트
+g.append("text")
+  .attr("x", 0).attr("y", -8) // 중앙 텍스트 위치 조정 (-6→-8)
+  .attr("text-anchor", "middle")
+  .attr("dominant-baseline", "central")
+  .attr("font-size", 17) // 중앙 텍스트 30% 키움 (13→17)
+  .attr("font-weight", 700)
+  .attr("fill", "#1a237e")
+  .text("OA Pipeline");
+
+g.append("text")
+  .attr("x", 0).attr("y", 16) // y 간격도 약간 키움 (12→16)
+  .attr("text-anchor", "middle")
+  .attr("dominant-baseline", "central")
+  .attr("font-size", 12) // 중앙 서브 텍스트 30% 키움 (9→12)
+  .attr("fill", "#78909c")
+  .text("Pain & Mobility");
+
+// 총 갯수 표시 (필터 영역 카운트)
+document.getElementById("filterCount").innerHTML = "<strong>" + totalItems + "</strong> / " + totalItems + " products";
+
+// ========== 대시보드 요약 바 (섹션 카드 그룹) ==========
+var statsBar = document.getElementById("statsBar"); // 대시보드 컨테이너
+var dtColors = { // Drug Type 대분류별 색상 — Activity Flag 색상과 충돌 방지용 별도 팔레트
+  "Chemical": "#5B8FF9", "Biological": "#5AD8A6", "Cellular": "#F6BD16", // 밝은파랑, 민트, 골드
+  "Gene/Vector": "#E86452", "Other": "#6DC8EC", "Unclassified": "#945FB9" // 코랄, 하늘, 보라
+};
+
+// --- DRUG TYPE 섹션 카드 ---
+var dtSection = document.createElement("div"); // Drug Type 섹션 카드 생성
+dtSection.className = "stats-section"; // 카드 스타일 적용
+var dtLabel = document.createElement("span"); // 섹션 라벨
+dtLabel.className = "stats-section-label"; // 라벨 스타일
+dtLabel.textContent = "DRUG TYPE"; // 라벨 텍스트
+dtSection.appendChild(dtLabel); // 카드에 라벨 추가
+
+// Drug Type 대분류별 갯수 + 클릭 시 세부 분류 토글
+drugTypeCategories.forEach(function(cat) { // 각 카테고리
+  var items = processedData.filter(function(d) { return simplifyDrugType(d.drugType) === cat; }); // 해당 카테고리 아이템
+  var count = items.length; // 갯수
+  if (count === 0) return; // 0개면 스킵
+
+  // 세부 분류 집계
+  var subCounts = {}; // 세부분류명 → 갯수
+  items.forEach(function(d) {
+    var dt = d.drugType || "Unknown"; // 원본 Drug Type
+    subCounts[dt] = (subCounts[dt] || 0) + 1; // 카운트
+  });
+  var subSorted = Object.keys(subCounts).sort(function(a, b) { return subCounts[b] - subCounts[a]; }); // 내림차순
+
+  // 칩 래퍼 (대분류 + 세부 펼침 영역)
+  var wrapper = document.createElement("div"); // 래퍼
+  wrapper.style.cssText = "display:inline-flex; flex-direction:column; gap:2px;"; // 세로 배치
+
+  // 대분류 칩 (클릭 가능)
+  var chip = document.createElement("div"); // 대분류 칩
+  chip.className = "stat-chip";
+  chip.style.cursor = "pointer"; // 클릭 커서
+  chip.title = "클릭하면 세부 분류 보기"; // 툴팁
+  chip.innerHTML = '<span class="stat-dot" style="background:' + (dtColors[cat] || "#999") + '"></span>' +
+    cat + ' <span class="stat-count">' + count + '</span>' +
+    ' <span style="font-size:9px; color:#aaa;">▼</span>'; // 펼침 화살표
+
+  // 세부 분류 패널 (기본 숨김)
+  var subPanel = document.createElement("div"); // 세부 패널
+  subPanel.style.cssText = "display:none; padding:2px 0 2px 14px; font-size:10px; color:#666; line-height:1.6;"; // 숨김 + 스타일
+  var subHtml = subSorted.map(function(dt) { // 세부 분류 HTML 생성
+    return '<div style="display:flex; justify-content:space-between; gap:8px;">' +
+      '<span style="color:#777;">' + dt + '</span>' +
+      '<span style="font-weight:600; color:#1a237e;">' + subCounts[dt] + '</span></div>';
+  }).join(""); // 줄 합치기
+  subPanel.innerHTML = subHtml; // 패널에 넣기
+
+  // 클릭 토글
+  chip.addEventListener("click", function() { // 클릭 이벤트
+    var isOpen = subPanel.style.display !== "none"; // 현재 열림 상태
+    subPanel.style.display = isOpen ? "none" : "block"; // 토글
+    chip.querySelector("span:last-child").textContent = isOpen ? "▼" : "▲"; // 화살표 방향
+  });
+
+  wrapper.appendChild(chip); // 칩 추가
+  wrapper.appendChild(subPanel); // 세부 패널 추가
+  dtSection.appendChild(wrapper); // 섹션 카드에 추가
+});
+statsBar.appendChild(dtSection); // 대시보드에 Drug Type 섹션 추가
+
+// --- PHASE 섹션 카드 ---
+var phSection = document.createElement("div"); // Phase 섹션 카드 생성
+phSection.className = "stats-section"; // 카드 스타일 적용
+var phLabel = document.createElement("span"); // 섹션 라벨
+phLabel.className = "stats-section-label"; // 라벨 스타일
+phLabel.textContent = "PHASE"; // 라벨 텍스트
+phSection.appendChild(phLabel); // 카드에 라벨 추가
+
+// Phase별 갯수
+phases.forEach(function(ph) { // 각 Phase
+  var count = processedData.filter(function(d) { return d.phase === ph; }).length; // 갯수
+  if (count === 0) return; // 0개면 스킵
+  var chip = document.createElement("div"); // Phase 칩
+  chip.className = "stat-chip";
+  chip.innerHTML = ph + ' <span class="stat-count">' + count + '</span>';
+  phSection.appendChild(chip); // 섹션 카드에 추가
+});
+statsBar.appendChild(phSection); // 대시보드에 Phase 섹션 추가
+
+// --- MOA TARGET 섹션 카드 ---
+var moaSection = document.createElement("div"); // MoA 섹션 카드 생성
+moaSection.className = "stats-section"; // 카드 스타일 적용
+var moaLabel = document.createElement("span"); // 섹션 라벨
+moaLabel.className = "stats-section-label"; // 라벨 스타일
+moaLabel.textContent = "MOA TARGET"; // 라벨 텍스트
+moaSection.appendChild(moaLabel); // 카드에 라벨 추가
+
+// MoA 카테고리별 갯수 + 클릭 시 세부 분류 토글
+moaCategories.forEach(function(moa) { // 각 MoA 카테고리
+  var items = processedData.filter(function(d) { return d.moaCategory === moa; }); // 해당 MoA 카테고리 아이템
+  var count = items.length; // 갯수
+  if (count === 0) return; // 0개면 스킵
+
+  // 세부 drugClass 집계
+  var subCounts = {}; // drugClass → 갯수
+  items.forEach(function(d) {
+    var dc = d.drugClass || "Unknown"; // 원본 drugClass
+    subCounts[dc] = (subCounts[dc] || 0) + 1; // 카운트
+  });
+  var subSorted = Object.keys(subCounts).sort(function(a, b) { return subCounts[b] - subCounts[a]; }); // 내림차순
+
+  // 칩 래퍼 (MoA 대분류 + 세부 펼침 영역)
+  var wrapper = document.createElement("div"); // 래퍼
+  wrapper.style.cssText = "display:inline-flex; flex-direction:column; gap:2px;"; // 세로 배치
+
+  // MoA 대분류 칩 (클릭 가능)
+  var chip = document.createElement("div"); // MoA 칩
+  chip.className = "stat-chip";
+  chip.style.cursor = "pointer"; // 클릭 커서
+  chip.title = "클릭하면 세부 Class 보기"; // 툴팁
+  chip.innerHTML = moa + ' <span class="stat-count">' + count + '</span>' +
+    ' <span style="font-size:9px; color:#aaa;">▼</span>'; // 펼침 화살표
+
+  // 세부 분류 패널 (기본 숨김)
+  var subPanel = document.createElement("div"); // 세부 패널
+  subPanel.style.cssText = "display:none; padding:2px 0 2px 14px; font-size:10px; color:#666; line-height:1.6;"; // 숨김 + 스타일
+  var subHtml = subSorted.map(function(dc) { // 세부 drugClass HTML 생성
+    return '<div style="display:flex; justify-content:space-between; gap:8px;">' +
+      '<span style="color:#777;">' + dc + '</span>' +
+      '<span style="font-weight:600; color:#1a237e;">' + subCounts[dc] + '</span></div>';
+  }).join(""); // 줄 합치기
+  subPanel.innerHTML = subHtml; // 패널에 넣기
+
+  // 클릭 토글
+  chip.addEventListener("click", function() { // 클릭 이벤트
+    var isOpen = subPanel.style.display !== "none"; // 현재 열림 상태
+    subPanel.style.display = isOpen ? "none" : "block"; // 토글
+    chip.querySelector("span:last-child").textContent = isOpen ? "▼" : "▲"; // 화살표 방향
+  });
+
+  wrapper.appendChild(chip); // 칩 추가
+  wrapper.appendChild(subPanel); // 세부 패널 추가
+  moaSection.appendChild(wrapper); // MoA 섹션 카드에 추가
+});
+statsBar.appendChild(moaSection); // 대시보드에 MoA 섹션 추가
+
+// Phase 라벨 (12시 방향 각 링 안에 표시)
+phases.forEach(function(ph, i) {
+  var r = ringMid(i); // 해당 Phase의 중간 반지름
+  g.append("text")
+    .attr("x", 0)
+    .attr("y", -r)
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "central")
+    .attr("font-size", 10) // Phase 라벨 30% 키움 (8→10)
+    .attr("fill", "#8fa8c8")
+    .attr("font-weight", 600)
+    .attr("letter-spacing", "0.5px")
+    .text(ph);
+});
+
+// --- 섹터 구분선 + Drug Type 라벨 + 도트 배치 ---
+drugTypeGroups.forEach(function(group, si) {
+  var startDeg = sectorStarts[si]; // 섹터 시작 각도
+  var endDeg = startDeg + sectorAngles[si]; // 섹터 끝 각도
+  var midDeg = (startDeg + endDeg) / 2; // 섹터 중간 각도
+
+  // 구분선: 중심에서 바깥까지 (점선)
+  g.append("line")
+    .attr("x1", Math.cos(startDeg * degToRad) * centerR)
+    .attr("y1", Math.sin(startDeg * degToRad) * centerR)
+    .attr("x2", Math.cos(startDeg * degToRad) * maxR)
+    .attr("y2", Math.sin(startDeg * degToRad) * maxR)
+    .attr("stroke", "#7a9bc0")
+    .attr("stroke-width", 0.8)
+    .attr("stroke-dasharray", "4,4"); // 점선 구분
+
+  // Drug Type 라벨 (바깥쪽에 크게 표시)
+  var labelR = maxR + 34; // 바깥 원 밖으로 충분히 (라벨 커져서 간격 키움)
+  var lxL = Math.cos(midDeg * degToRad) * labelR;
+  var lyL = Math.sin(midDeg * degToRad) * labelR;
+
+  // 라벨 회전 — 항상 읽기 편한 방향 (절대 뒤집히지 않게)
+  var normDeg = ((midDeg % 360) + 360) % 360; // 0~360 정규화
+  var textAnchor, rotAdj;
+  if (normDeg > 90 && normDeg < 270) { // 왼쪽 반원 (위에서 읽을 수 있게 180도 뒤집기)
+    textAnchor = "end";
+    rotAdj = midDeg + 180;
+  } else { // 오른쪽 반원 (그대로)
+    textAnchor = "start";
+    rotAdj = midDeg;
+  }
+
+  // Drug Type 라벨 + 갯수를 한 줄로 합침 (겹침 방지)
+  var sectorLabelText = group.category + " (" + group.items.length + ")"; // 라벨+갯수 합침
+  var sectorLabel = g.append("text") // 섹터 라벨 텍스트
+    .attr("x", lxL)
+    .attr("y", lyL)
+    .attr("text-anchor", textAnchor)
+    .attr("dominant-baseline", "central")
+    .attr("font-size", 17) // 카테고리 라벨 30% 키움 (13→17)
+    .attr("fill", "#37474f")
+    .attr("font-weight", 700)
+    .attr("transform", "rotate(" + rotAdj + "," + lxL + "," + lyL + ")")
+    .attr("cursor", "pointer") // 클릭 가능 표시
+    .text(sectorLabelText);
+
+  // 섹터 라벨 클릭 → 해당 Drug Type만 강조 (나머지 흐리게)
+  (function(category) { // 클로저로 category 캡처
+    sectorLabel.on("click", function() { // 클릭 이벤트
+      var isAlreadyFiltered = filterState.drugTypes.size === 1 && filterState.drugTypes.has(category); // 이미 이 카테고리만 선택됨?
+      if (isAlreadyFiltered) { // 이미 선택된 상태면 → 전체 선택으로 복원
+        filterState.drugTypes = new Set(drugTypeCategories); // 전체 선택
+        document.querySelectorAll("#filterDrugType .filter-check").forEach(function(el) {
+          el.classList.add("checked"); // 체크박스 전부 활성화 (checked 클래스)
+          el.querySelector("input").checked = true; // input 체크 상태도 동기화
+        });
+      } else { // 아니면 → 이 카테고리만 선택
+        filterState.drugTypes = new Set([category]); // 이 카테고리만
+        document.querySelectorAll("#filterDrugType .filter-check").forEach(function(el) {
+          var isTarget = el.textContent.trim().indexOf(category) >= 0; // 해당 카테고리인지
+          el.classList.toggle("checked", isTarget); // checked 클래스 토글
+          el.querySelector("input").checked = isTarget; // input 체크 상태도 동기화
+        });
+      }
+      applyFilters(); // 필터 적용
+    });
+  })(group.category);
+
+  // --- 도트 배치 (Phase별로 분류 후 섹터 내에 배치) ---
+  var phaseGroups = d3.group(group.items, function(d) { return d.phase; }); // phase별 그룹핑
+
+  phaseGroups.forEach(function(items, phase) {
+    var pi = phaseIndex[phase]; // Phase 인덱스
+    if (pi === undefined) return;
+
+    // 도트 크기: 30% 키움 (5→7)
+    var dotR = 7; // 도트 반지름 30% 키움 (5→7)
+
+    items.forEach(function(item, idx) {
+      // 겹침 방지: 각도 간격이 dot 크기보다 좁으면 여러 줄(행)로 배치
+      var angleMargin = 3; // 양쪽 마진 (도)
+      var availAngle = sectorAngles[si] - angleMargin * 2; // 사용 가능 각도
+      var midRadius = ringMid(pi); // 링 중간 반지름
+      var arcPerDeg = midRadius * Math.PI / 180; // 1도당 호 길이 (px)
+      var dotSpacing = dotR * 2 + 3; // dot 간 최소 간격 (지름 + 여백)
+      var maxPerRow = Math.max(1, Math.floor(availAngle * arcPerDeg / dotSpacing)); // 한 줄 최대 dot 수
+      var totalRows = Math.ceil(items.length / maxPerRow); // 필요한 줄 수
+      var row = Math.floor(idx / maxPerRow); // 현재 행 (0부터)
+      var col = idx % maxPerRow; // 현재 열 (0부터)
+      var colsInRow = Math.min(maxPerRow, items.length - row * maxPerRow); // 이 행의 실제 dot 수
+
+      // 각도: 행 내에서 균등 배치
+      var rowAngleStep = colsInRow > 1 ? availAngle / colsInRow : 0; // 열 간격
+      var itemAngle = startDeg + angleMargin + rowAngleStep * (col + 0.5); // 도트 각도
+
+      // 반지름: 행별로 오프셋 (링 중간 기준 위아래로)
+      var rowOffset = totalRows > 1
+        ? (row - (totalRows - 1) / 2) * (dotR * 2 + 2) // 행 간격 = dot 지름 + 2px
+        : 0;
+      var r = midRadius + rowOffset; // 최종 반지름
+      r = Math.max(ringInner(pi) + dotR + 2, Math.min(ringOuter(pi) - dotR - 2, r)); // 링 범위 제한
+
+      var dx = Math.cos(itemAngle * degToRad) * r; // 도트 X 좌표
+      var dy = Math.sin(itemAngle * degToRad) * r; // 도트 Y 좌표
+      var dotColor = getColor(item.activityFlag); // Activity Flag 기준 색상
+
+      // processedData에서의 인덱스 찾기
+      var dataIdx = processedData.indexOf(item);
+
+      // 도트 그룹 (필터링용 data-index, 라벨표시 여부)
+      var dotGroup = g.append("g")
+        .attr("class", "dot-group")
+        .attr("data-index", dataIdx)
+        .attr("data-show-label", items.length <= 4 ? "1" : "0"); // 밀집도 기반 라벨 표시 여부
+
+      // 도트 원 — Activity Flag 색상, 흰색 테두리
+      var dot = dotGroup.append("circle")
+        .attr("cx", dx)
+        .attr("cy", dy)
+        .attr("r", dotR)
+        .attr("fill", dotColor)
+        .attr("fill-opacity", 0.85)
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 1)
+        .attr("cursor", "pointer");
+
+      // DMOAD 표시 — 골드 링으로 DMOAD 여부 표시
+      if (item.dmoad && (item.dmoad.toLowerCase() === "yes" || item.dmoad.toLowerCase() === "y")) {
+        dotGroup.append("circle")
+          .attr("cx", dx).attr("cy", dy)
+          .attr("r", dotR + 2) // 도트보다 2px 큰 링
+          .attr("fill", "none")
+          .attr("stroke", "#FFC000") // 골드 색상
+          .attr("stroke-width", 1.5);
+      }
+
+      // Product Name 라벨 (도트 오른쪽에 작은 폰트로 항상 표시)
+      var labelAngleDeg = itemAngle; // 라벨 방향 = 도트 각도
+      var labelOffset = dotR + 4; // 도트에서 라벨까지 거리 (dotR 키운 만큼 조정)
+      var labelX = dx + Math.cos(labelAngleDeg * degToRad) * labelOffset; // 라벨 X
+      var labelY = dy + Math.sin(labelAngleDeg * degToRad) * labelOffset; // 라벨 Y
+
+      // 라벨 텍스트 방향 결정 (가독성)
+      var normalizedAngle = ((labelAngleDeg % 360) + 360) % 360; // 0~360 정규화
+      var labelAnchor = "start"; // 기본: 왼쪽 정렬
+      var labelRotation = labelAngleDeg; // 기본 회전
+      if (normalizedAngle > 90 && normalizedAngle < 270) {
+        labelAnchor = "end"; // 왼쪽에 있으면 오른쪽 정렬
+        labelRotation += 180; // 뒤집어서 읽기 편하게
+      }
+
+      // 라벨 이름 축약 (너무 길면)
+      var productLabel = (item.product || "").length > 18
+        ? (item.product || "").slice(0, 16) + ".."
+        : (item.product || "");
+
+      var showLabel = items.length <= 4; // 4개 이하일 때만 라벨 기본 표시 (겹침 방지)
+      dotGroup.append("text")
+        .attr("x", labelX)
+        .attr("y", labelY)
+        .attr("text-anchor", labelAnchor)
+        .attr("dominant-baseline", "central")
+        .attr("font-size", 12)       // 12px 폰트 (9→12, 30% 키움)
+        .attr("fill", dotColor)      // 도트 색상과 동일
+        .attr("font-weight", 500)
+        .attr("opacity", showLabel ? 1 : 0) // 밀집 시 라벨 숨김, 호버로 표시
+        .attr("transform", "rotate(" + labelRotation + "," + labelX + "," + labelY + ")")
+        .text(productLabel);
+
+      // 클릭 이벤트 — 도트 클릭 시 고정 상세 패널 표시
+      dot.on("click", function(event) { // 도트 클릭 핸들러
+        event.stopPropagation(); // 이벤트 버블링 방지
+        // 필터로 숨겨진 아이템은 클릭 무시
+        if (parseFloat(d3.select(this).attr("fill-opacity")) < 0.2) return; // 투명 도트 무시
+        showDetailPanel(item); // 상세 패널 표시 함수 호출
+      });
+
+      // 호버 이벤트 — 마우스 올리면 상세 정보 툴팁 표시
+      dot.on("mouseenter", function(event) {
+        // 필터로 숨겨진 아이템은 호버 무시
+        if (parseFloat(d3.select(this).attr("fill-opacity")) < 0.2) return;
+
+        // 나머지 모든 도트 dim 처리 (이슈9: 호버 시 강조 효과)
+        var self = this; // 현재 도트 참조 저장
+        d3.selectAll(".dot-group").each(function() { // 모든 도트 그룹 순회
+          var groupCircle = d3.select(this).select("circle"); // 각 그룹의 메인 도트
+          if (groupCircle.node() !== self) { // 현재 호버 도트가 아니면
+            d3.select(this).selectAll("circle") // 해당 그룹의 모든 원 (도트 + DMOAD 링)
+              .transition().duration(100)
+              .attr("fill-opacity", function() { // dim 처리
+                return d3.select(this).attr("fill") === "none" ? 0 : 0.15; // DMOAD 링은 fill 없음 유지
+              })
+              .attr("stroke-opacity", 0.15); // 테두리도 흐리게
+            d3.select(this).select("text") // 라벨도 흐리게
+              .transition().duration(100)
+              .attr("opacity", 0.1);
+          }
+        });
+
+        // 도트 강조
+        d3.select(this)
+          .transition().duration(100)
+          .attr("r", dotR * 1.8)
+          .attr("stroke", "#1a237e")
+          .attr("stroke-width", 2)
+          .attr("fill-opacity", 1);
+
+        // 라벨 호버 시 표시 (숨겨진 라벨도 보여줌)
+        d3.select(this.parentNode).select("text")
+          .transition().duration(100)
+          .attr("opacity", 1);
+
+        // Activity Flag 배지 색상
+        var flagColor = getColor(item.activityFlag);
+        var flagLabel = activityLabelMap[normalizeFlag(item.activityFlag)] || "Unknown";
+
+        // 툴팁 내용 — 깔끔한 카드 스타일
+        var tooltip = document.getElementById("tooltip");
+        tooltip.innerHTML =
+          '<div class="tt-title">' + (item.product || 'N/A') + '</div>' +
+          '<div class="tt-row"><span class="tt-label">Sponsor:</span> ' + (item.sponsor || 'N/A') + '</div>' +
+          '<div class="tt-row"><span class="tt-label">Phase:</span> <span class="tt-phase-badge">' + item.phase + '</span></div>' +
+          '<div class="tt-row"><span class="tt-label">Drug Type:</span> ' + (item.drugType || 'N/A') + ' <span style="color:#90a4ae;">(' + item.dtCategory + ')</span></div>' +
+          '<div class="tt-row"><span class="tt-label">Activity:</span> <span class="tt-flag-badge" style="background:' + flagColor + ';">' + (item.activityFlag || '?') + ' - ' + flagLabel + '</span></div>' +
+          (item.nct ? '<div class="tt-row"><span class="tt-label">NCT:</span> ' + item.nct + '</div>' : '') +
+          '<div class="tt-row"><span class="tt-label">Enrollment:</span> ' + (item.enrollment > 0 ? item.enrollment.toLocaleString() : 'N/A') + '</div>' +
+          (item.moaRaw ? '<div class="tt-row"><span class="tt-label">MoA:</span> ' + item.moaRaw + '</div>' : '') +
+          '<div class="tt-row"><span class="tt-label">Category:</span> ' + item.moaCategory + '</div>' +
+          '<div class="tt-row"><span class="tt-label">Indication:</span> ' + (item.indication || 'N/A') + '</div>' +
+          (item.dmoad && (item.dmoad.toLowerCase() === "yes" || item.dmoad.toLowerCase() === "y") ? '<div class="tt-row"><span class="tt-label">DMOAD:</span> <span style="background:#FFC000; color:#fff; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600;">★ DMOAD</span></div>' : '');
+        tooltip.style.opacity = 1;
+      });
+
+      dot.on("mousemove", function(event) { // 마우스 따라다니는 툴팁
+        var tooltip = document.getElementById("tooltip");
+        var container = document.querySelector(".chart-container");
+        var rect = container.getBoundingClientRect();
+        var left = event.clientX - rect.left + 15;
+        var top = event.clientY - rect.top - 10;
+        if (left + 340 > rect.width) left = left - 360;
+        if (top + 220 > rect.height) top = top - 220;
+        tooltip.style.left = left + "px";
+        tooltip.style.top = top + "px";
+      });
+
+      dot.on("mouseleave", function() { // 마우스 떠나면 원상복구
+        var currentOpacity = isItemVisible(item) ? 0.85 : 0.05;
+        d3.select(this)
+          .transition().duration(150)
+          .attr("r", dotR)
+          .attr("stroke", "#fff")
+          .attr("stroke-width", 1)
+          .attr("fill-opacity", currentOpacity);
+
+        // 라벨 원상복구: 밀집 시 다시 숨김
+        var labelOpacity = showLabel ? (isItemVisible(item) ? 1 : 0.05) : 0; // 밀집 라벨 다시 숨김
+        d3.select(this.parentNode).select("text")
+          .transition().duration(150)
+          .attr("opacity", labelOpacity);
+
+        // 나머지 도트 원래 opacity로 복원 (이슈9: dim 해제)
+        d3.selectAll(".dot-group").each(function() { // 모든 도트 그룹 순회
+          var groupData = processedData[+d3.select(this).attr("data-index")]; // 해당 도트 데이터
+          var vis = isItemVisible(groupData); // 필터 표시 여부
+          d3.select(this).selectAll("circle") // 모든 원 (도트 + DMOAD 링)
+            .transition().duration(150)
+            .attr("fill-opacity", function() { // 원래 opacity 복원
+              return d3.select(this).attr("fill") === "none" ? 0 : (vis ? 0.85 : 0.05);
+            })
+            .attr("stroke-opacity", vis ? 0.9 : 0.05); // 테두리도 복원
+          var canShow = d3.select(this).attr("data-show-label") === "1"; // 라벨 표시 가능 여부
+          d3.select(this).select("text") // 라벨 복원
+            .transition().duration(150)
+            .attr("opacity", vis && canShow ? 1 : (vis ? 0 : 0.05));
+        });
+
+        document.getElementById("tooltip").style.opacity = 0;
+      });
+    });
+  });
+});
+
+// 마지막 섹터 끝 구분선
+var lastEnd = sectorStarts[sectorStarts.length - 1] + sectorAngles[sectorAngles.length - 1];
+g.append("line")
+  .attr("x1", Math.cos(lastEnd * degToRad) * centerR)
+  .attr("y1", Math.sin(lastEnd * degToRad) * centerR)
+  .attr("x2", Math.cos(lastEnd * degToRad) * maxR)
+  .attr("y2", Math.sin(lastEnd * degToRad) * maxR)
+  .attr("stroke", "#7a9bc0")
+  .attr("stroke-width", 0.8)
+  .attr("stroke-dasharray", "4,4");
+
+// ========== Activity Flag 범례 → stats-section 카드 안에 넣기 ==========
+var legendBar = document.getElementById("legendBar"); // 범례 컨테이너
+var legendSection = document.createElement("div"); // 카드 래퍼 생성
+legendSection.className = "stats-section"; // 다른 요약 카드와 동일한 스타일 적용
+legendSection.style.justifyContent = "center"; // 범례 아이템 가운데 정렬
+
+var legendLabel = document.createElement("span"); // 범례 섹션 라벨
+legendLabel.className = "stats-section-label"; // 라벨 스타일
+legendLabel.textContent = "ACTIVITY FLAG"; // 라벨 텍스트
+legendSection.appendChild(legendLabel); // 카드에 라벨 추가
+
+["A", "C", "M", "T", ""].forEach(function(flag) { // 각 Activity Flag
+  var color = activityColorMap[flag]; // 색상
+  var label = activityLabelMap[flag]; // 라벨
+  var displayText = flag ? flag + " = " + label : "Unknown"; // 표시 텍스트
+  var item = document.createElement("div"); // 범례 아이템
+  item.className = "legend-item"; // 범례 스타일
+  item.innerHTML = '<span class="legend-dot" style="background:' + color + '"></span>' + displayText;
+  legendSection.appendChild(item); // 카드 안에 추가
+});
+
+// DMOAD 범례 추가 — 골드 링 아이콘으로 DMOAD 표시
+var dmoadItem = document.createElement("span"); // DMOAD 범례 아이템
+dmoadItem.className = "legend-item"; // 범례 스타일
+dmoadItem.innerHTML = '<span style="display:inline-block; width:12px; height:12px; border-radius:50%; border:2px solid #FFC000; background:transparent; vertical-align:middle; margin-right:4px;"></span>DMOAD'; // 골드 링 범례
+legendSection.appendChild(dmoadItem); // 카드 안에 추가
+
+legendBar.appendChild(legendSection); // legendBar에 카드 삽입
+
+// ========== Phase 미니 범례 (우하단) ==========
+var phaseLegend = document.getElementById("phaseLegend");
+var plHtml = '<div class="pl-title">Phase (inner &rarr; outer)</div>';
+phases.forEach(function(ph, i) {
+  plHtml += '<div class="pl-row">' +
+    '<span class="pl-circle" style="background:' + ringColors[i] + '"></span>' +
+    ph +
+  '</div>';
+});
+if (phaseLegend) phaseLegend.innerHTML = plHtml; // phaseLegend 요소 없으면 스킵
+
+// ========== 필터 UI 초기화 ==========
+buildFilterUI(); // 필터 체크박스/검색 UI 생성
+readFiltersFromURL(); // URL 파라미터로 필터 상태 초기화 (applyFilters 전에 호출해야 URL이 유지됨)
+applyFilters();  // 초기 카운트 표시 + URL 동기화
+
+// ========== 반응형 리사이즈 — viewBox 방식이라 자동 스케일링, 리스너 불필요 ==========
+// location.reload() 제거 — SVG viewBox가 자동으로 반응형 처리함
+
+// ========== 타임라인 토글 버튼 이벤트 ==========
+var timelineToggleEl = document.getElementById("timelineToggle"); // 타임라인 토글 버튼 조회
+if (timelineToggleEl) timelineToggleEl.addEventListener("click", function() { // 타임라인 버튼 클릭
+  var panel = document.getElementById("timelinePanel"); // 타임라인 패널
+  var isVisible = panel.style.display !== "none"; // 현재 표시 여부
+  panel.style.display = isVisible ? "none" : "block"; // 토글
+  if (!isVisible) renderTimeline(); // 열릴 때만 렌더링
+});
+
+// ========== 타임라인 렌더링 함수 ==========
+function renderTimeline() {
+  // Primary Completion Date가 있는 제품만 필터링
+  var timelineData = processedData
+    .filter(function(d) { return d.primaryCompletionDate; }) // 날짜 있는 것만
+    .map(function(d) {
+      return {
+        product: d.product, // 제품명
+        sponsor: d.sponsor, // 스폰서
+        phase: d.phase, // 임상 단계
+        dtCategory: d.dtCategory, // Drug Type 대분류
+        date: new Date(d.primaryCompletionDate), // 날짜 변환
+        dmoad: d.dmoad // DMOAD 여부
+      };
+    })
+    .filter(function(d) { return !isNaN(d.date.getTime()); }) // 유효한 날짜만
+    .sort(function(a, b) { return a.date - b.date; }); // 날짜순 정렬
+
+  if (timelineData.length === 0) { // 데이터 없으면 안내 메시지
+    document.getElementById("timelineSvg").innerHTML = '<p style="color:#999; text-align:center;">Primary Completion Date 데이터가 없습니다.</p>';
+    return;
+  }
+
+  // 수평 바 차트 레이아웃 설정
+  var margin = {top: 20, right: 30, bottom: 40, left: 200}; // 여백
+  var barH = 18; // 바 높이
+  var gap = 3; // 바 간격
+  var width = 1000; // 차트 너비
+  var height = timelineData.length * (barH + gap) + margin.top + margin.bottom; // 차트 높이 (데이터 수에 비례)
+
+  // 이전 렌더링 제거
+  d3.select("#timelineSvg").selectAll("*").remove();
+
+  var svg = d3.select("#timelineSvg").append("svg") // SVG 생성
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height);
+
+  var tg = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")"); // 그룹
+
+  // X축 스케일 (시간축)
+  var today = new Date(); // 오늘 날짜
+  var xMin = d3.min(timelineData, function(d) { return d.date; }); // 가장 빠른 날짜
+  var xMax = d3.max(timelineData, function(d) { return d.date; }); // 가장 늦은 날짜
+  var dateMin = new Date(Math.min(today.getTime(), xMin.getTime())); // 시작점
+  dateMin.setMonth(dateMin.getMonth() - 3); // 3개월 전부터
+  var dateMax = new Date(xMax.getTime());
+  dateMax.setMonth(dateMax.getMonth() + 6); // 6개월 후까지
+
+  var x = d3.scaleTime().domain([dateMin, dateMax]).range([0, width]); // 시간 스케일
+
+  // X축 그리기
+  tg.append("g")
+    .attr("transform", "translate(0," + (timelineData.length * (barH + gap)) + ")") // 하단에 배치
+    .call(d3.axisBottom(x).ticks(8).tickFormat(d3.timeFormat("%Y-%m"))) // 연-월 포맷
+    .selectAll("text").attr("font-size", 9);
+
+  // 오늘 날짜 세로선
+  tg.append("line")
+    .attr("x1", x(today)).attr("x2", x(today)) // X 좌표
+    .attr("y1", 0).attr("y2", timelineData.length * (barH + gap)) // 위에서 아래까지
+    .attr("stroke", "#E53935").attr("stroke-width", 1.5).attr("stroke-dasharray", "4,3"); // 빨간 점선
+
+  tg.append("text") // "Today" 라벨
+    .attr("x", x(today) + 4).attr("y", -5)
+    .text("Today").attr("font-size", 9).attr("fill", "#E53935");
+
+  // Drug Type 색상 매핑 (Bull's Eye 차트와 동일 — Activity Flag 충돌 방지 팔레트)
+  var dtColorsTimeline = {
+    "Chemical": "#5B8FF9", "Biological": "#5AD8A6", "Cellular": "#F6BD16", // 밝은파랑, 민트, 골드
+    "Gene/Vector": "#E86452", "Other": "#6DC8EC", "Unclassified": "#945FB9" // 코랄, 하늘, 보라
+  };
+
+  // 각 제품에 대한 바 그리기
+  timelineData.forEach(function(d, i) {
+    var y = i * (barH + gap); // Y 좌표
+    var barStart = x(today); // 바 시작점 = 오늘
+    var barEnd = x(d.date); // 바 끝점 = Primary Completion Date
+    var barWidth = Math.max(barEnd - barStart, 2); // 최소 2px
+    var barX = Math.min(barStart, barEnd); // 왼쪽 시작점
+
+    var isPast = d.date < today; // 이미 지난 날짜 여부
+
+    // 바 렌더링
+    tg.append("rect")
+      .attr("x", barX).attr("y", y) // 위치
+      .attr("width", Math.abs(barWidth)) // 너비
+      .attr("height", barH) // 높이
+      .attr("rx", 3) // 둥근 모서리
+      .attr("fill", dtColorsTimeline[d.dtCategory] || "#999") // Drug Type 색상
+      .attr("opacity", isPast ? 0.4 : 0.8); // 지난 날짜는 흐리게
+
+    // DMOAD 마커 (골드 별)
+    if (d.dmoad && (d.dmoad.toLowerCase() === "yes" || d.dmoad.toLowerCase() === "y")) {
+      tg.append("text")
+        .attr("x", barX + Math.abs(barWidth) + 3).attr("y", y + barH / 2 + 1) // 바 오른쪽
+        .text("★").attr("font-size", 10).attr("fill", "#FFC000") // 골드 별
+        .attr("dominant-baseline", "middle");
+    }
+
+    // 제품명 라벨 (왼쪽)
+    tg.append("text")
+      .attr("x", -6).attr("y", y + barH / 2) // 바 왼쪽
+      .attr("text-anchor", "end") // 오른쪽 정렬
+      .attr("dominant-baseline", "middle")
+      .attr("font-size", 9)
+      .attr("fill", "#333")
+      .text(d.product.length > 25 ? d.product.substr(0, 25) + "..." : d.product); // 25자 초과 시 축약
+
+    // 날짜 라벨 (바 위에)
+    if (Math.abs(barWidth) > 50) { // 바가 충분히 넓을 때만
+      tg.append("text")
+        .attr("x", barX + Math.abs(barWidth) / 2).attr("y", y + barH / 2) // 바 중앙
+        .attr("text-anchor", "middle")
+        .attr("dominant-baseline", "middle")
+        .attr("font-size", 8)
+        .attr("fill", "#fff") // 흰색 텍스트
+        .text(d3.timeFormat("%Y-%m")(d.date)); // 연-월 포맷
+    }
+  });
+}
+
+// (DEBUG 로그 제거됨 — 이슈8)
+
+// ========== [기능1] 상세 패널 표시 함수 ==========
+function showDetailPanel(item) { // 도트 클릭 시 호출되는 상세 패널 표시 함수
+  var panel = document.getElementById("detailPanel"); // 패널 DOM 요소
+  var flagColor = getColor(item.activityFlag); // Activity Flag 색상
+  var flagLabel = activityLabelMap[normalizeFlag(item.activityFlag)] || "Unknown"; // Activity Flag 라벨
+  var isDmoad = item.dmoad && (item.dmoad.toLowerCase() === "yes" || item.dmoad.toLowerCase() === "y"); // DMOAD 여부 체크
+
+  // 패널 내용 구성 — 제품 상세 정보
+  panel.innerHTML =
+    '<div class="dp-header">' + // 헤더: 제목 + 닫기 버튼
+      '<div class="dp-title">' + (item.product || 'N/A') + '</div>' + // 제품명 큰 제목
+      '<button class="dp-close" id="dpCloseBtn" title="닫기">&times;</button>' + // 닫기(X) 버튼
+    '</div>' +
+    '<div class="dp-row"><span class="dp-label">Sponsor</span> ' + (item.sponsor || 'N/A') + '</div>' + // 스폰서
+    '<div class="dp-row"><span class="dp-label">Phase</span> <span class="dp-badge" style="background:#e8edf5; color:#3949ab;">' + item.phase + '</span></div>' + // 임상 단계
+    '<div class="dp-row"><span class="dp-label">Drug Type</span> ' + (item.drugType || 'N/A') + ' <span style="color:#90a4ae; font-size:11px;">(' + item.dtCategory + ')</span></div>' + // Drug Type
+    '<div class="dp-row"><span class="dp-label">Activity</span> <span class="dp-badge" style="background:' + flagColor + '; color:#fff;">' + (item.activityFlag || '?') + ' - ' + flagLabel + '</span></div>' + // Activity Flag
+    '<div class="dp-row"><span class="dp-label">INN</span> ' + (item.inn || 'N/A') + '</div>' + // INN (국제일반명)
+    '<div class="dp-row"><span class="dp-label">NCT</span> ' + (item.nct ? '<a href="https://clinicaltrials.gov/ct2/show/' + item.nct + '" target="_blank" style="color:#1a237e; text-decoration:underline;">' + item.nct + '</a>' : 'N/A') + '</div>' + // NCT (클릭 시 clinicaltrials.gov 이동)
+    '<div class="dp-row"><span class="dp-label">Indication</span> ' + (item.indication || 'N/A') + '</div>' + // 적응증
+    '<div class="dp-row"><span class="dp-label">Enrollment</span> ' + (item.enrollment > 0 ? item.enrollment.toLocaleString() : 'N/A') + '</div>' + // 등록 인원
+    (item.moaRaw ? '<div class="dp-row" style="margin-top:8px;"><span class="dp-label" style="display:block; margin-bottom:4px;">MoA Description</span><div class="dp-moa-desc">' + item.moaRaw + '</div></div>' : '') + // MoA 설명
+    '<div class="dp-row"><span class="dp-label">DMOAD</span> ' + // DMOAD 여부 표시
+      (isDmoad
+        ? '<span style="background:#FFC000; color:#fff; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:600;">★ DMOAD</span>' // DMOAD인 경우 골드 배지
+        : '<span style="color:#999;">No</span>') + // DMOAD 아닌 경우
+    '</div>';
+
+  // 패널 표시 (CSS 클래스 토글)
+  panel.classList.add("visible"); // 패널 보이기
+
+  // 닫기 버튼 이벤트
+  document.getElementById("dpCloseBtn").addEventListener("click", function() { // 닫기 버튼 클릭
+    panel.classList.remove("visible"); // 패널 숨기기
+  });
+}
+
+// SVG 바깥 클릭 시 상세 패널 닫기
+document.addEventListener("click", function(e) { // 문서 클릭 이벤트
+  var panel = document.getElementById("detailPanel"); // 패널 요소
+  if (!panel.classList.contains("visible")) return; // 패널이 안 보이면 무시
+  // 패널 내부 클릭이면 무시
+  if (panel.contains(e.target)) return; // 패널 안 클릭 시 무시
+  // dot-group 내부 클릭이면 무시 (dot 클릭은 showDetailPanel에서 처리)
+  if (e.target.closest && e.target.closest(".dot-group")) return; // 도트 클릭 시 무시
+  panel.classList.remove("visible"); // 그 외 클릭 시 패널 닫기
+});
+
+// ========== [기능2] 필터 상태 URL 파라미터 동기화 ==========
+// URL에서 필터 파라미터 읽어서 적용
+function readFiltersFromURL() { // 페이지 로드 시 URL 파라미터로 필터 초기화
+  var params = new URLSearchParams(window.location.search); // URL 쿼리 파싱
+
+  // Phase 필터 — ?phase=Approved,Phase3 형태
+  if (params.has("phase")) { // phase 파라미터 존재 시
+    var phaseValues = params.get("phase").split(",").map(function(v) { return v.trim().replace(/\+/g, ' '); }); // 쉼표 구분 + 공백 복원
+    filterState.phases = new Set(phaseValues.filter(function(v) { return phases.indexOf(v) >= 0; })); // 유효한 Phase만 적용
+    // UI 체크박스 동기화
+    document.querySelectorAll("#filterPhase .filter-check").forEach(function(el) { // Phase 체크박스 순회
+      var ph = el.querySelector("input").getAttribute("data-phase"); // 해당 Phase 값
+      var isChecked = filterState.phases.has(ph); // 선택 여부
+      el.classList.toggle("checked", isChecked); // 체크 표시 토글
+      el.querySelector("input").checked = isChecked; // 체크박스 상태 변경
+    });
+  }
+
+  // Drug Type 필터 — ?drugType=Chemical,Biological 형태
+  if (params.has("drugType")) { // drugType 파라미터 존재 시
+    var dtValues = params.get("drugType").split(",").map(function(v) { return v.trim(); }); // 쉼표 구분
+    filterState.drugTypes = new Set(dtValues.filter(function(v) { return drugTypeCategories.indexOf(v) >= 0; })); // 유효한 Drug Type만 적용
+    // UI 체크박스 동기화
+    document.querySelectorAll("#filterDrugType .filter-check").forEach(function(el) { // Drug Type 체크박스 순회
+      var dt = el.querySelector("input").getAttribute("data-dtype"); // 해당 Drug Type 값
+      var isChecked = filterState.drugTypes.has(dt); // 선택 여부
+      el.classList.toggle("checked", isChecked); // 체크 표시 토글
+      el.querySelector("input").checked = isChecked; // 체크박스 상태 변경
+    });
+  }
+
+  // Activity Flag 필터 — ?activity=A,C,M 형태
+  if (params.has("activity")) { // activity 파라미터 존재 시
+    var actValues = params.get("activity").split(",").map(function(v) { return v.trim(); }); // 쉼표 구분
+    var validFlags = ["A", "C", "M", "T", ""]; // 유효한 플래그 값
+    filterState.activityFlags = new Set(actValues.filter(function(v) { return validFlags.indexOf(v) >= 0; })); // 유효한 값만 적용
+    // UI 체크박스 동기화
+    document.querySelectorAll("#filterActivity .filter-check").forEach(function(el) { // Activity 체크박스 순회
+      var flag = el.querySelector("input").getAttribute("data-flag"); // 해당 플래그 값
+      var isChecked = filterState.activityFlags.has(flag); // 선택 여부
+      el.classList.toggle("checked", isChecked); // 체크 표시 토글
+      el.querySelector("input").checked = isChecked; // 체크박스 상태 변경
+    });
+  }
+
+  // Product 검색 — ?product=aspirin 형태
+  if (params.has("product")) { // product 파라미터 존재 시
+    filterState.productQuery = params.get("product").trim().toLowerCase(); // 검색어 적용
+    document.getElementById("filterProduct").value = params.get("product").trim(); // 입력창에 값 표시
+  }
+
+  // Sponsor 검색 — ?sponsor=Pfizer 형태
+  if (params.has("sponsor")) { // sponsor 파라미터 존재 시
+    filterState.sponsorQuery = params.get("sponsor").trim().toLowerCase(); // 검색어 적용
+    document.getElementById("filterSponsor").value = params.get("sponsor").trim(); // 입력창에 값 표시
+  }
+
+  // Indication 검색 — ?indication=pain 형태
+  if (params.has("indication")) { // indication 파라미터 존재 시
+    filterState.indicationQuery = params.get("indication").trim().toLowerCase(); // 검색어 적용
+    document.getElementById("filterIndication").value = params.get("indication").trim(); // 입력창에 값 표시
+  }
+
+  // MoA Target 필터 — ?moa=Antibody,Cell+Therapy 형태
+  if (params.has("moa")) { // moa 파라미터 존재 시
+    var moaValues = params.get("moa").split(",").map(function(v) { return v.trim().replace(/\+/g, ' '); }); // 쉼표 구분 + 공백 복원
+    filterState.moaTargets = new Set(moaValues.filter(function(v) { return moaCategories.indexOf(v) >= 0; })); // 유효한 MoA만 적용
+    // UI 체크박스 동기화
+    document.querySelectorAll("#filterMoA .filter-check").forEach(function(el) { // MoA 체크박스 순회
+      var moa = el.querySelector("input").getAttribute("data-moa"); // 해당 MoA 값
+      var isChecked = filterState.moaTargets.has(moa); // 선택 여부
+      el.classList.toggle("checked", isChecked); // 체크 표시 토글
+      el.querySelector("input").checked = isChecked; // 체크박스 상태 변경
+    });
+  }
+
+  // DMOAD 필터 — ?dmoad=1 형태
+  if (params.has("dmoad") && params.get("dmoad") === "1") { // dmoad=1이면 DMOAD만 보기
+    filterState.dmoaOnly = true; // DMOAD 필터 활성화
+    document.getElementById("filterDmoad").checked = true; // 체크박스 체크
+  }
+}
+
+// 현재 필터 상태를 URL 파라미터로 저장
+function writeFiltersToURL() { // 필터 변경 시 URL 업데이트
+  var params = new URLSearchParams(); // 새 파라미터 객체
+
+  // Phase — 전체 선택이 아닐 때만 저장
+  if (filterState.phases.size !== phases.length) { // 일부만 선택된 경우
+    params.set("phase", Array.from(filterState.phases).join(",")); // 쉼표 구분 문자열로 저장
+  }
+
+  // Drug Type — 전체 선택이 아닐 때만 저장
+  if (filterState.drugTypes.size !== drugTypeCategories.length) { // 일부만 선택된 경우
+    params.set("drugType", Array.from(filterState.drugTypes).join(",")); // 쉼표 구분 문자열로 저장
+  }
+
+  // Activity Flag — 전체 선택이 아닐 때만 저장
+  var allFlags = ["A", "C", "M", "T", ""]; // 전체 플래그 목록
+  if (filterState.activityFlags.size !== allFlags.length) { // 일부만 선택된 경우
+    params.set("activity", Array.from(filterState.activityFlags).join(",")); // 쉼표 구분 문자열로 저장
+  }
+
+  // Product 검색어
+  if (filterState.productQuery) { // 검색어가 있으면
+    params.set("product", filterState.productQuery); // URL에 저장
+  }
+
+  // Sponsor 검색어
+  if (filterState.sponsorQuery) { // 검색어가 있으면
+    params.set("sponsor", filterState.sponsorQuery); // URL에 저장
+  }
+
+  // Indication 검색어
+  if (filterState.indicationQuery) { // 검색어가 있으면
+    params.set("indication", filterState.indicationQuery); // URL에 저장
+  }
+
+  // MoA Target — 전체 선택이 아닐 때만 저장
+  if (filterState.moaTargets.size !== moaCategories.length) { // 일부만 선택된 경우
+    params.set("moa", Array.from(filterState.moaTargets).join(",")); // 쉼표 구분 문자열로 저장
+  }
+
+  // DMOAD 필터
+  if (filterState.dmoaOnly) { // DMOAD만 보기 활성화 시
+    params.set("dmoad", "1"); // URL에 저장
+  }
+
+  // URL 업데이트 (페이지 리로드 없이)
+  var newUrl = window.location.pathname + (params.toString() ? "?" + params.toString() : ""); // 파라미터 없으면 깔끔하게
+  history.replaceState(null, "", newUrl); // URL 변경 (히스토리 대체)
+}
+
+// (readFiltersFromURL과 applyFilters는 위 buildFilterUI 직후에 호출됨)
+
+// ========== [기능3] 로드 애니메이션 — 도트가 중앙에서 퍼져나가는 효과 ==========
+(function() { // 즉시 실행 함수로 스코프 격리
+  var allDots = d3.selectAll(".dot-group"); // 모든 도트 그룹 선택
+  var dotIndex = 0; // stagger용 인덱스
+
+  allDots.each(function() { // 각 도트 그룹 순회
+    var group = d3.select(this); // 현재 도트 그룹
+    var circles = group.selectAll("circle"); // 그룹 내 모든 원 (메인 도트 + DMOAD 링)
+    var label = group.select("text"); // 그룹 내 라벨
+
+    // 각 원의 최종 위치를 저장하고 (0,0)에서 시작
+    circles.each(function() { // 각 원 순회
+      var circle = d3.select(this); // 현재 원
+      var finalCx = +circle.attr("cx"); // 최종 X 좌표 저장
+      var finalCy = +circle.attr("cy"); // 최종 Y 좌표 저장
+      circle
+        .attr("cx", 0) // 시작 위치: 중앙 X
+        .attr("cy", 0) // 시작 위치: 중앙 Y
+        .transition() // D3 transition 시작
+        .duration(800) // 800ms 동안 애니메이션
+        .delay(dotIndex * 5) // 각 도트마다 5ms 지연 (staggered)
+        .ease(d3.easeCubicOut) // 자연스러운 감속 이징
+        .attr("cx", finalCx) // 최종 X 좌표로 이동
+        .attr("cy", finalCy); // 최종 Y 좌표로 이동
+    });
+
+    // 라벨도 함께 애니메이션 — 최종 위치로 이동
+    if (!label.empty()) { // 라벨이 있으면
+      var finalLx = +label.attr("x"); // 최종 라벨 X 좌표
+      var finalLy = +label.attr("y"); // 최종 라벨 Y 좌표
+      var finalTransform = label.attr("transform") || ""; // 최종 transform(회전)
+      label
+        .attr("x", 0) // 시작 위치: 중앙 X
+        .attr("y", 0) // 시작 위치: 중앙 Y
+        .attr("transform", "") // 시작 시 회전 없음
+        .attr("opacity", 0) // 시작 시 투명
+        .transition() // D3 transition 시작
+        .duration(800) // 800ms
+        .delay(dotIndex * 5 + 200) // 도트보다 200ms 늦게 (도트 먼저 이동 후 라벨)
+        .ease(d3.easeCubicOut) // 감속 이징
+        .attr("x", finalLx) // 최종 X
+        .attr("y", finalLy) // 최종 Y
+        .attr("transform", finalTransform) // 최종 회전
+        .attr("opacity", function() { // 최종 opacity (밀집 여부에 따라)
+          return group.attr("data-show-label") === "1" ? 1 : 0; // 밀집 시 숨김 유지
+        });
+    }
+
+    dotIndex++; // 다음 도트 인덱스 증가
+  });
+})();
+
+} // initChart() 끝
+
+// ========== PNG/PDF 다운로드 — initChart() 밖에서 한 번만 등록 (이슈7: 중복 등록 방지) ==========
+document.getElementById("downloadPng").addEventListener("click", function() { // PNG 다운로드 클릭
+  var svgEl = document.getElementById("chart"); // SVG 요소
+  var svgData = new XMLSerializer().serializeToString(svgEl); // SVG → 문자열
+  var svgWithBg = svgData.replace('<svg ', '<svg style="background:white" '); // 흰색 배경 추가
+
+  var canvas = document.createElement("canvas"); // 캔버스 생성
+  var svgSize = svgEl.getBoundingClientRect(); // SVG 크기
+  var scale = 2; // 고해상도 (2x)
+  canvas.width = svgSize.width * scale; // 캔버스 너비
+  canvas.height = svgSize.height * scale; // 캔버스 높이
+
+  var ctx = canvas.getContext("2d"); // 2D 컨텍스트
+  ctx.scale(scale, scale); // 스케일 적용
+
+  var img = new Image(); // 이미지 객체
+  img.onload = function() { // 이미지 로드 완료 시
+    ctx.fillStyle = "white"; // 흰색 배경
+    ctx.fillRect(0, 0, canvas.width, canvas.height); // 배경 그리기
+    ctx.drawImage(img, 0, 0); // SVG 그리기
+
+    // <a download> 방식으로 직접 파일 저장 (이슈11)
+    var dataUrl = canvas.toDataURL("image/png"); // PNG 데이터 URL
+    var a = document.createElement("a"); // 다운로드용 <a> 태그 생성
+    a.href = dataUrl; // 데이터 URL 설정
+    a.download = "OA_Pipeline_BullsEye_" + new Date().toISOString().slice(0,10) + ".png"; // 파일명 설정
+    document.body.appendChild(a); // DOM에 추가
+    a.click(); // 클릭으로 다운로드 트리거
+    document.body.removeChild(a); // DOM에서 제거
+  };
+  img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgWithBg))); // SVG → base64
+});
+
+document.getElementById("downloadPdf").addEventListener("click", function() { // PDF 다운로드 클릭
+  window.print(); // 현재 페이지에서 바로 인쇄 (@media print CSS로 차트만 출력)
+});
+</script>
+</body>
+</html>
